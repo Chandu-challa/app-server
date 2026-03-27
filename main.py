@@ -25,24 +25,26 @@ def home():
 
 @app.get("/customers")
 def get_customers(page: int = Query(1), limit: int = Query(10)):
-    try:
-        for attempt in range(3):  # retry 3 times
-            try:
-                response = requests.get(
-                    f"{FLASK_API}?page={page}&limit={limit}",
-                    timeout=20
-                )
-                response.raise_for_status()
-                return response.json()
+    """
+    Fetch customers from Flask API with retries.
+    """
+    max_retries = 3
+    backoff = 2  # seconds
 
-            except requests.exceptions.Timeout:
-                if attempt < 2:
-                    time.sleep(2)  # wait before retry
-                else:
-                    raise
-
-    except Exception as e:
-        return {"error": f"External API error: {str(e)}"}
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(f"{FLASK_API}?page={page}&limit={limit}", timeout=20)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries - 1:
+                time.sleep(backoff)  # wait before retrying
+                backoff *= 2  # exponential backoff
+            else:
+                return {
+                    "error": f"Failed to fetch from Flask API after {max_retries} attempts.",
+                    "details": str(e)
+                }
 
 
 # 🔥 Ingest data from Flask → PostgreSQL
