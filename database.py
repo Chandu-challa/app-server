@@ -5,6 +5,6 @@ def get_connection():
         dbname="customer_db",
         user="postgres",
         password="12345678",
-        host="127.0.0.1",
+        host=" https://app-server-aigs.onrender.com/db/customers",
         port="5433"
     )
