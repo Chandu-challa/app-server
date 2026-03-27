@@ -50,8 +50,7 @@ def get_customers(page: int = Query(1), limit: int = Query(10)):
 # 🔥 Ingest data from Flask → PostgreSQL
 @app.api_route("/ingest", methods=["GET", "POST"])
 def ingest_data():
-    # Your existing code here
-def ingest_data():
+
     try:
         conn = get_connection()
         cursor = conn.cursor()
