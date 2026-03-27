@@ -1,11 +1,17 @@
 from fastapi import FastAPI, Query
 import requests
+import os
+from dotenv import load_dotenv
 from database import get_connection
+import time
+
+# Load environment variables
+load_dotenv()
 
 app = FastAPI()
 
-# 🔗 Flask API URL
-FLASK_API = "https://mock-server-x04f.onrender.com/api/customers"
+# 🔗 Flask API URL (from .env)
+FLASK_API = os.getenv("FLASK_API_URL")
 
 
 # 🏠 Home API
@@ -15,18 +21,28 @@ def home():
 
 
 # 📄 Get customers from Flask (Dynamic Pagination)
+
+
 @app.get("/customers")
 def get_customers(page: int = Query(1), limit: int = Query(10)):
     try:
-        response = requests.get(f"{FLASK_API}?page={page}&limit={limit}")
-        
-        if response.status_code != 200:
-            return {"error": "Failed to fetch data from Flask"}
+        for attempt in range(3):  # retry 3 times
+            try:
+                response = requests.get(
+                    f"{FLASK_API}?page={page}&limit={limit}",
+                    timeout=20
+                )
+                response.raise_for_status()
+                return response.json()
 
-        return response.json()
+            except requests.exceptions.Timeout:
+                if attempt < 2:
+                    time.sleep(2)  # wait before retry
+                else:
+                    raise
 
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": f"External API error: {str(e)}"}
 
 
 # 🔥 Ingest data from Flask → PostgreSQL
@@ -36,12 +52,14 @@ def ingest_data():
         conn = get_connection()
         cursor = conn.cursor()
 
-        response = requests.get(f"{FLASK_API}?page=1&limit=20")
+        response = requests.get(
+            f"{FLASK_API}?page=1&limit=20",
+            timeout=20
+        )
 
-        if response.status_code != 200:
-            return {"error": "Failed to fetch data from Flask"}
+        response.raise_for_status()
 
-        data = response.json()["data"]
+        data = response.json().get("data", [])
 
         for c in data:
             cursor.execute("""
@@ -52,25 +70,26 @@ def ingest_data():
                 ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (customer_id) DO NOTHING
             """, (
-                c["customer_id"],
-                c["first_name"],
-                c["last_name"],
-                c["email"],
-                c["phone"],
-                c["address"],
-                c["date_of_birth"],
-                c["account_balance"],
-                c["created_at"]
+                c.get("customer_id"),
+                c.get("first_name"),
+                c.get("last_name"),
+                c.get("email"),
+                c.get("phone"),
+                c.get("address"),
+                c.get("date_of_birth"),
+                c.get("account_balance"),
+                c.get("created_at")
             ))
 
         conn.commit()
+
         cursor.close()
         conn.close()
 
         return {"message": "Data inserted successfully"}
 
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": f"Ingestion failed: {str(e)}"}
 
 
 # 📊 Fetch data from Database
@@ -83,9 +102,8 @@ def get_db_customers():
         cursor.execute("SELECT * FROM customers")
         rows = cursor.fetchall()
 
-        result = []
-        for row in rows:
-            result.append({
+        result = [
+            {
                 "customer_id": row[0],
                 "first_name": row[1],
                 "last_name": row[2],
@@ -95,7 +113,9 @@ def get_db_customers():
                 "date_of_birth": str(row[6]),
                 "account_balance": float(row[7]),
                 "created_at": str(row[8])
-            })
+            }
+            for row in rows
+        ]
 
         cursor.close()
         conn.close()
@@ -103,4 +123,4 @@ def get_db_customers():
         return {"data": result}
 
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": f"Database fetch failed: {str(e)}"}
